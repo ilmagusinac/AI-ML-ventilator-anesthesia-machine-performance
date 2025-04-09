@@ -9,42 +9,42 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, accuracy_score, roc_auc_score
 from sklearn.calibration import CalibratedClassifierCV
 
-# ✅ Ensure console prints in UTF-8
+# Ensure console prints in UTF-8
 sys.stdout.reconfigure(encoding="utf-8")
 
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
 
-# ✅ Load data from CSV file
+# Load data from CSV file
 data = pd.read_csv("files/anesthesia_machines_2015_2023.csv", encoding="utf-8")
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-#                                                                    ✅ CLEANING THE DATASET
+#                                                                    CLEANING THE DATASET
 
-# ✅ Drop unnecessary columns
+# Drop unnecessary columns
 data.drop(columns=['Broj izvještaja', 'Broj naloga', 'Status verifikacije', 'Zahtjev za verifikaciju', 'Metoda', 'Vrsta','Napomena'], errors='ignore', inplace=True)
 
-# ✅ Handle incorrect value - this value was intentionally put in the dataset used for the information that something wasn't measured
+# Handle incorrect value - this value was intentionally put in the dataset used for the information that something wasn't measured
 data.replace("NIJE MJERENO", np.nan, inplace=True)
 
-# ✅ Clean external inspection columns
+# Clean external inspection columns
 external_cols = ['Spoljašnji pregled 1', 'Spoljašnji pregled 2', 'Spoljašnji pregled 3', 'Spoljašnji pregled 4']
 for col in external_cols:
     data[col] = data[col].astype(str).str.strip().str.upper()  
     data[col] = data[col].map({'DA': 1, 'NE': 0})
 
-# ✅ Encode categorical variables
+# Encode categorical variables
 original_values = {}
 categorical_cols = ['Proizvođač', 'Uređaj']
 for col in categorical_cols:
     data[col], uniques = pd.factorize(data[col])
     original_values[col] = dict(enumerate(uniques))
 
-# ✅ Encode target variable
+# Encode target variable
 data['Verifikacija ispravna'] = data['Verifikacija ispravna'].map({'DA': 1, 'NE': 0})
 
-# ✅ Coordinated columns
+# Coordinated columns
 usk_columns = [col for col in data.columns if 'Usklađeno' in col]
 for col in usk_columns:
     data[col] = data[col].map({'DA': 1, 'NE': 0})
@@ -53,16 +53,16 @@ for col in usk_columns:
 
 #                                                                           FEATURES ENGINEERING
 
-# ✅ External check summary - if any external inspection failed, the machine is at risk
+# External check summary - if any external inspection failed, the machine is at risk
 data['external_failed'] = data[external_cols].apply(
     lambda row: 1 if (row == 0).any() else 0, axis=1
 )
 
-# ✅ Count how many measurements were skipped in each row
+# Count how many measurements were skipped in each row
 measure_cols = [col for col in data.columns if 'Zadana vrijednost' in col or 'Mjerena vrijednost' in col or 'Greška mjerenja' in col]
 data['skipped_measurements'] = data[measure_cols].isna().sum(axis=1)
 
-# ✅ Percentage of coordinated (usklađeno) measurement - tells us how consistently the mahine was aligned
+# Percentage of coordinated (usklađeno) measurement - tells us how consistently the mahine was aligned
 usk_column = [col for col in data.columns if 'Usklađeno' in col]
 data['usk_percent'] = data[usk_column].mean(axis=1) # gives value between 0 and 1 - 0: non were coordinated, 1: all were coordinated
 
@@ -85,11 +85,11 @@ for label, colname in measure_mapping.items():
 print(data[['VERIFIKACIJA GREŠKE MJERILA:.3', 'usk_koncentracija_anestezioloških_gasova']].head(40)) 
 """
 
-# ✅ Error measurement - statistical view of measurement consistency
+# Error measurement - statistical view of measurement consistency
 error_cols = [col for col in data.columns if 'Greška mjerenja' in col]
 allowed_cols = [col for col in data.columns if 'Dozvoljeno odstupanje' in col]
 
-# ✅ This will only ensure that these error_cols and allowed_cols are numeric without 'NIJE MJERENO' value
+# This will only ensure that these error_cols and allowed_cols are numeric without 'NIJE MJERENO' value
 data[error_cols] = data[error_cols].apply(pd.to_numeric, errors='coerce')
 data[allowed_cols] = data[allowed_cols].apply(pd.to_numeric, errors='coerce')
 
@@ -99,24 +99,24 @@ new_cols = pd.DataFrame({
     'std_error': data[error_cols].std(axis=1), # How consistent/inconsistent the errors are
 })
 
-# ✅ Count breaches where error is outside ± allowed deviation - if a devices error is worse than allowed
+# Count breaches where error is outside ± allowed deviation - if a devices error is worse than allowed
 breaches = []
 for err_col, dev_col in zip(error_cols, allowed_cols):
     breach = ((data[err_col] < -data[dev_col]) | (data[err_col] > data[dev_col])).astype(int)
     breaches.append(breach)
 
-# ✅ Add everything back to the DataFrame
+# Add everything back to the DataFrame
 data = pd.concat([data, new_cols], axis=1)
 data = data.copy()
 data['total_breaches'] = np.vstack(breaches).sum(axis=0)
 
-# ✅ Normalized value of how often a device exceeded the allowed error margins relative to how many tests were performed
+# Normalized value of how often a device exceeded the allowed error margins relative to how many tests were performed
 error_columns = [col for col in data.columns if 'Greška mjerenja' in col]
 data['total_tests'] = data[error_columns].notna().sum(axis=1)
 data['breach_ratio'] = data['total_breaches'] / data['total_tests']
 data['breach_ratio'] = data['breach_ratio'].fillna(0)
 
-# ✅ Time-Based Features
+# Time-Based Features
 data['Datum izdavanja'] = pd.to_datetime(data['Datum izdavanja'], dayfirst=True, errors='coerce')
 data['year'] = data['Datum izdavanja'].dt.year
 data['month'] = data['Datum izdavanja'].dt.month
@@ -124,7 +124,7 @@ data['dayofweek'] = data['Datum izdavanja'].dt.dayofweek
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-# ✅                                                                           FEATURE SELECTION 
+#                                                                          FEATURE SELECTION 
 y = data['Verifikacija ispravna'] # target variable
 
 feature_columns = [
@@ -137,13 +137,13 @@ feature_columns = [
 
 X = data[feature_columns]
 
-# ✅ Split the data in training and test sets: 80% train & 20% test set
+# Split the data in training and test sets: 80% train & 20% test set
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y) # stratisfy is used to balance DA/NE classes
 
 print("Train class balance:", y_train.value_counts(normalize=True))
 print("Test class balance:", y_test.value_counts(normalize=True))
 
-# ✅ Create the model
+# Create the model
 rf_model = RandomForestClassifier(
     n_estimators=100,           # number of trees
     max_depth=None,             # allow full growth
@@ -151,19 +151,19 @@ rf_model = RandomForestClassifier(
     class_weight='balanced'     # handle imbalance between DA/NE
 )
 
-# ✅ Train the model
+# Train the model
 rf_model.fit(X_train, y_train)
 
-# ✅ Make prediction
+# Make prediction
 y_pred = rf_model.predict(X_test)
 y_proba = rf_model.predict_proba(X_test)[:, 1] # Probability of class 1 (failure)
 
-# ✅ Basic performance report
+# Basic performance report
 print("Accuracy:", accuracy_score(y_test, y_pred))
 print("\nClassification Report:\n", classification_report(y_test, y_pred))
 print("\nConfusion Matrix:\n", confusion_matrix(y_test, y_pred))
 
-# ✅ Plot Confusion Matrix
+# Plot Confusion Matrix
 cm = confusion_matrix(y_test, y_pred)
 plt.figure(figsize=(6, 5))
 sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=['NE (Failed)', 'DA (Passed)'], yticklabels=['NE (Failed)', 'DA (Passed)'])
@@ -173,11 +173,11 @@ plt.title('Confusion Matrix - Random Forest')
 plt.tight_layout()
 plt.show()
 
-# ✅ Calculate ROC AUC Score
+# Calculate ROC AUC Score
 roc_auc = roc_auc_score(y_test, y_proba)
 print(f"AUC-ROC Score: {roc_auc:.2f}")
 
-# ✅ Plot ROC Curve
+# Plot ROC Curve
 fpr, tpr, thresholds = roc_curve(y_test, y_proba)
 plt.figure(figsize=(8, 6))
 plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (AUC = {roc_auc:.2f})')
@@ -190,7 +190,7 @@ plt.grid()
 plt.tight_layout()
 plt.show()
 
-# ✅ Visualise Feature Importance: Why is this machine likely to fail?
+# Visualise Feature Importance: Why is this machine likely to fail?
 importances = rf_model.feature_importances_
 feature_names = X_train.columns
 feat_df = pd.DataFrame({
@@ -198,7 +198,7 @@ feat_df = pd.DataFrame({
     'Importance': importances
 }).sort_values(by='Importance', ascending=False)
 
-# ✅ Plot Feature Importance
+# Plot Feature Importance
 plt.figure(figsize=(10, 6))
 sns.barplot(x='Importance', y='Feature', data=feat_df, color='skyblue')
 plt.title('Feature Importance - Random Forest')
@@ -207,7 +207,7 @@ plt.show()
 
 # ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-# ✅ Tune Random Forest with GridSearchCV - systematically tries all combinations of specified hyperparameters to find the best-performing model
+# Tune Random Forest with GridSearchCV - systematically tries all combinations of specified hyperparameters to find the best-performing model
 param_grid = {
     'n_estimators': [100, 200, 300],     # Number of trees in the forest
     'max_depth': [None, 10, 20, 3],      # Max depth of each tree
@@ -239,21 +239,21 @@ y_pred = calibrated_rf.predict(X_test)
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
-# ✅ Copy test features and attach the probabilities
+# Copy test features and attach the probabilities
 X_test_with_probs = X_test.copy()
 X_test_with_probs['Failure_Probability'] = y_proba
 
-# ✅ Copy test features and attach the probabilities
+# Copy test features and attach the probabilities
 X_test_with_probs = X_test.copy()
 X_test_with_probs['Failure_Probability'] = y_proba
 
-#✅  Attach real data info only from test set
+# Attach real data info only from test set
 test_info = data.loc[X_test.index, ['Proizvođač', 'Uređaj', 'Serijski broj']].copy()
 test_info['Proizvođač'] = test_info['Proizvođač'].map(original_values['Proizvođač'])
 test_info['Uređaj'] = test_info['Uređaj'].map(original_values['Uređaj'])
 test_info['Failure_Probability'] = y_proba
 
-# ✅ Group by machine (serial number), get max risk per machine
+# Group by machine (serial number), get max risk per machine
 grouped_test_info = test_info.groupby('Serijski broj').agg({
     'Proizvođač': 'first',
     'Uređaj': 'first',
@@ -268,7 +268,7 @@ grouped_test_info = grouped_test_info.merge(
     how='left'
 )
 
-# ✅ Sort and show top 10 riskiest machines in the test set
+# Sort and show top 10 riskiest machines in the test set
 riskiest_test_machines = grouped_test_info.sort_values(by='Failure_Probability', ascending=False)
 print("\nTop 10 riskiest machines (Test Set Only):")
 print(riskiest_test_machines.head(187))
@@ -288,9 +288,9 @@ verified_serials = set(devices_counts_sorted['Serijski broj'])
 
 overlap_serials = risky_serials.intersection(verified_serials)
 
-print(f"\n✅ Devices that are BOTH risky and most verified: {len(overlap_serials)} out of 187")
+print(f"\n Devices that are BOTH risky and most verified: {len(overlap_serials)} out of 187")
 
 overlap_devices = riskiest_test_machines[riskiest_test_machines['Serijski broj'].isin(overlap_serials)]
-print("\n🔍 These devices are both highly risky and highly verified:")
+print("\n These devices are both highly risky and highly verified:")
 print(overlap_devices)
 
