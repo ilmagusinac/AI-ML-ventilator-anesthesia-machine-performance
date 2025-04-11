@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, accuracy_score, roc_auc_score
 from sklearn.calibration import CalibratedClassifierCV
 
@@ -135,6 +135,13 @@ feature_columns = [
     'year', 'month', 'dayofweek'
 ]
 
+for col in feature_columns:
+    if data[col].isna().any():
+        data[col + "_missing"] = data[col].isna().astype(int)
+        data[col] = data[col].fillna(-999)
+missing_cols = [col + "_missing" for col in feature_columns if col + "_missing" in data.columns]
+feature_columns += missing_cols
+
 X = data[feature_columns]
 
 # Split the data in training and test sets: 80% train & 20% test set
@@ -144,19 +151,18 @@ print("Train class balance:", y_train.value_counts(normalize=True))
 print("Test class balance:", y_test.value_counts(normalize=True))
 
 # Create the model
-rf_model = RandomForestClassifier(
+gb_model = GradientBoostingClassifier(
     n_estimators=100,           # number of trees
     max_depth=None,             # allow full growth
     random_state=42,            # reproducibility
-    class_weight='balanced'     # handle imbalance between DA/NE
 )
 
 # Train the model
-rf_model.fit(X_train, y_train)
+gb_model.fit(X_train, y_train)
 
 # Make prediction
-y_pred = rf_model.predict(X_test)
-y_proba = rf_model.predict_proba(X_test)[:, 1] # Probability of class 1 (failure)
+y_pred = gb_model.predict(X_test)
+y_proba = gb_model.predict_proba(X_test)[:, 1] # Probability of class 1 (failure)
 
 # Basic performance report
 print("Accuracy:", accuracy_score(y_test, y_pred))
@@ -191,7 +197,7 @@ plt.tight_layout()
 plt.show()
 
 # Visualise Feature Importance: Why is this machine likely to fail?
-importances = rf_model.feature_importances_
+importances = gb_model.feature_importances_
 feature_names = X_train.columns
 feat_df = pd.DataFrame({
     'Feature': feature_names,
@@ -215,7 +221,7 @@ param_grid = {
 }
 
 grid_search = GridSearchCV(
-    estimator=RandomForestClassifier(random_state=42, class_weight='balanced'),
+    estimator=GradientBoostingClassifier(random_state=42),
     param_grid=param_grid,
     cv=5,
     scoring='f1',
@@ -225,7 +231,7 @@ grid_search = GridSearchCV(
 
 grid_search.fit(X_train, y_train)
 
-rf_model = grid_search.best_estimator_
+gb_model = grid_search.best_estimator_
 print("Best Parameters:", grid_search.best_params_)
 
 # ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -234,7 +240,7 @@ calibrated_rf = CalibratedClassifierCV(grid_search.best_estimator_, cv=3)  # use
 calibrated_rf.fit(X_train, y_train)
 
 # Predict calibrated probabilities instead of original
-y_proba = calibrated_rf.predict_proba(X_test)[:, 0] # 0: NE- we did not passed verification
+y_proba = calibrated_rf.predict_proba(X_test)[:, 0] # 1: DA - we passed verification
 y_pred = calibrated_rf.predict(X_test)
 
 # -------------------------------------------------------------------------------------------------------------------------------------------------------------------------
