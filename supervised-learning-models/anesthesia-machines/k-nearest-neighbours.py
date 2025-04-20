@@ -1,3 +1,12 @@
+"""
+AI-Based Prediction of Anesthesia Machine Verification Outcomes
+- Loads dataset
+- Cleans and engineers domain-specific features
+- Trains K-Nearest Neighbours Model
+- Calibrates probability predictions
+- Identifies high-risk devices based on predicted failure likelihood
+"""
+
 import pandas as pd
 import sys
 import numpy as np
@@ -16,18 +25,23 @@ sys.stdout.reconfigure(encoding="utf-8")
 pd.set_option('display.max_columns', None)
 pd.set_option('display.max_rows', None)
 
+#------------------------------------------------------------------------
+# LOAD AND CLEAN DATASET
+#------------------------------------------------------------------------
+
 # Load data from CSV file
 data = pd.read_csv("files/anesthesia_machines_2015_2023.csv", encoding="utf-8")
-
-# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-
-#                                                                    CLEANING THE DATASET
 
 # Drop unnecessary columns
 data.drop(columns=['Broj izvještaja', 'Broj naloga', 'Status verifikacije', 'Zahtjev za verifikaciju', 'Metoda', 'Vrsta','Napomena'], errors='ignore', inplace=True)
 
 # Handle incorrect value - this value was intentionally put in the dataset used for the information that something wasn't measured
 data.replace("NIJE MJERENO", np.nan, inplace=True)
+
+# Convert comma decimal separators to dot for all columns that should be numeric
+for col in data.columns:
+    if data[col].dtype == 'object':  # Only process string columns
+        data[col] = data[col].str.replace(',', '.', regex=False)
 
 # Clean external inspection columns
 external_cols = ['Spoljašnji pregled 1', 'Spoljašnji pregled 2', 'Spoljašnji pregled 3', 'Spoljašnji pregled 4']
@@ -50,9 +64,11 @@ usk_columns = [col for col in data.columns if 'Usklađeno' in col]
 for col in usk_columns:
     data[col] = data[col].map({'DA': 1, 'NE': 0})
 
-# ------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#data.to_csv("files/anesthesia_cleaned.csv", index=False, encoding="utf-8")
 
-#                                                                           FEATURES ENGINEERING
+#------------------------------------------------------------------------
+# FEATURE ENGINEERING
+#------------------------------------------------------------------------
 
 # External check summary - if any external inspection failed, the machine is at risk
 data['external_failed'] = data[external_cols].apply(
@@ -67,38 +83,53 @@ data['skipped_measurements'] = data[measure_cols].isna().sum(axis=1)
 usk_column = [col for col in data.columns if 'Usklađeno' in col]
 data['usk_percent'] = data[usk_column].mean(axis=1) # gives value between 0 and 1 - 0: non were coordinated, 1: all were coordinated
 
-# Calculate usk_percent per type
-"""
-measure_mapping = {
-    'volumen': 'VERIFIKACIJA GREŠKE MJERILA:',
-    'pritisak': 'VERIFIKACIJA GREŠKE MJERILA:.1',
-    'protok': 'VERIFIKACIJA GREŠKE MJERILA:.2',
-    'koncentracija_anestezioloških_gasova': 'VERIFIKACIJA GREŠKE MJERILA:.3'
-}
-
-for label, colname in measure_mapping.items():
-    new_col = f'usk_{label}'
-    data[new_col] = data.apply(
-        lambda row: row[usk_column].mean() if pd.notna(row[colname]) else np.nan,
-        axis=1
-    )
-
-print(data[['VERIFIKACIJA GREŠKE MJERILA:.3', 'usk_koncentracija_anestezioloških_gasova']].head(40)) 
-"""
-
 # Error measurement - statistical view of measurement consistency
 error_cols = [col for col in data.columns if 'Greška mjerenja' in col]
 allowed_cols = [col for col in data.columns if 'Dozvoljeno odstupanje' in col]
 
-# This will only ensure that these error_cols and allowed_cols are numeric without 'NIJE MJERENO' value
-data[error_cols] = data[error_cols].apply(pd.to_numeric, errors='coerce')
-data[allowed_cols] = data[allowed_cols].apply(pd.to_numeric, errors='coerce')
+data[error_cols] = data[error_cols].apply(pd.to_numeric, errors='coerce')  # This will ensure that these error_cols are numeric
+data[allowed_cols] = data[allowed_cols].apply(pd.to_numeric, errors='coerce')  # This will ensure that these error_cols are numeric
 
 new_cols = pd.DataFrame({
     'mean_error': data[error_cols].mean(axis=1), # Average error across all points for a device
     'max_error': data[error_cols].max(axis=1), # Worst error recorded
     'std_error': data[error_cols].std(axis=1), # How consistent/inconsistent the errors are
 })
+
+# Function to classify the error into performance categories using scaled thresholds
+def classify_scaled_error_score(error, allowed):
+    try:
+        if pd.isna(error) or pd.isna(allowed) or allowed == 0:
+            return np.nan
+
+        abs_error = abs(error)
+        threshold = allowed
+        
+        if abs_error <= 0.2 * threshold:
+            return 5  # Excellent
+        elif abs_error <= 0.4 * threshold:
+            return 4  # Very Good
+        elif abs_error <= 0.6 * threshold:
+            return 3  # Good
+        elif abs_error <= 0.8 * threshold:
+            return 2  # Moderate
+        elif abs_error <= 1.0 * threshold:
+            return 1  # Likely to Fail
+        else:
+            return 0  # Failed
+    except:
+        return np.nan
+    
+# Scaled classification to each error/deviation pair
+scaled_score_cols = []
+for err_col, dev_col in zip(error_cols, allowed_cols):
+    score_col = err_col + '_score'
+    data[score_col] = data.apply(lambda row: classify_scaled_error_score(row[err_col], row[dev_col]), axis=1)
+    scaled_score_cols.append(score_col)
+
+data['mean_error_score'] = data[scaled_score_cols].mean(axis=1)
+data['min_error_score'] = data[scaled_score_cols].min(axis=1)
+data['high_risk_score_count'] = data[scaled_score_cols].apply(lambda row: ((row == 0) | (row == 1)).sum(), axis=1)
 
 # Count breaches where error is outside ± allowed deviation - if a devices error is worse than allowed
 breaches = []
@@ -123,9 +154,12 @@ data['year'] = data['Datum izdavanja'].dt.year
 data['month'] = data['Datum izdavanja'].dt.month
 data['dayofweek'] = data['Datum izdavanja'].dt.dayofweek
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------
+#data.to_csv("files/anesthesia_cleaned_with_features.csv", index=False, encoding="utf-8")
 
-#                                                                          FEATURE SELECTION 
+#------------------------------------------------------------------------
+# MODEL TRAINING AND TUNING
+#------------------------------------------------------------------------
+
 y = data['Verifikacija ispravna'] # target variable
 
 feature_columns = [
@@ -133,7 +167,8 @@ feature_columns = [
     'external_failed', 'usk_percent',
     'mean_error', 'max_error', 'std_error',
     'total_breaches', 'breach_ratio', 'skipped_measurements',
-    'year', 'month', 'dayofweek'
+    'year', 'month', 'dayofweek', 
+    'mean_error_score', 'min_error_score', 'high_risk_score_count'
 ]
 
 for col in feature_columns:
@@ -148,9 +183,6 @@ X = data[feature_columns]
 # Split the data in training and test sets: 80% train & 20% test set
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y) # stratisfy is used to balance DA/NE classes
 
-print("Train class balance:", y_train.value_counts(normalize=True))
-print("Test class balance:", y_test.value_counts(normalize=True))
-
 # Scale features (KNN is distance-based and very sensitive to scale)
 scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
@@ -163,14 +195,23 @@ param_grid = {
     'metric': ['euclidean', 'manhattan']
 }
 
-knn = KNeighborsClassifier()
-grid_search = GridSearchCV(knn, param_grid, cv=5, scoring='f1', n_jobs=-1, verbose=1)
+grid_search = GridSearchCV(
+    estimator=KNeighborsClassifier(), 
+    param_grid=param_grid, 
+    cv=5, 
+    scoring='f1', 
+    n_jobs=-1, 
+    verbose=1
+    )
+
 grid_search.fit(X_train_scaled, y_train)
-best_knn = grid_search.best_estimator_
 print("Best Parameters:", grid_search.best_params_)
 
-# Calibrate probabilities
-calibrated_knn = CalibratedClassifierCV(best_knn, cv=3)
+#------------------------------------------------------------------------
+# CALIBRATION AND EVALUATION
+#------------------------------------------------------------------------
+
+calibrated_knn = CalibratedClassifierCV(grid_search.best_estimator_, cv=3)
 calibrated_knn.fit(X_train_scaled, y_train)
 
 # Predictions
@@ -193,7 +234,7 @@ plt.tight_layout()
 plt.show()
 
 # Calculate ROC AUC Score
-roc_auc = roc_auc_score(1-y_test, y_proba)
+roc_auc = roc_auc_score(y_test == 0, y_proba)
 print(f"AUC-ROC Score: {roc_auc:.2f}")
 
 # Plot ROC Curve
@@ -209,7 +250,9 @@ plt.grid()
 plt.tight_layout()
 plt.show()
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------
+# HIGH-RISK MACHINE ANALYSIS
+#------------------------------------------------------------------------
 
 # Copy test features and attach the probabilities
 X_test_with_probs = X_test.copy()
@@ -238,27 +281,20 @@ grouped_test_info = grouped_test_info.merge(
 
 # Sort and show top 10 riskiest machines in the test set
 riskiest_test_machines = grouped_test_info.sort_values(by='Failure_Probability', ascending=False)
-print("\nTop 10 riskiest machines (Test Set Only):")
-print(riskiest_test_machines.head(187))
+print("\nTop 50 riskiest machines (Test Set Only):")
+print(riskiest_test_machines.head(50))
 
-# ---------------------------------------------------------------------------------------------------------------------------------------------
-
-#                                                               Riskiest and most verified devices
-
-
+# Most Verified & Risky Overlap
 devices_count = data.groupby(['Uređaj', 'Serijski broj']).size().reset_index(name='device_verification_count')
 devices_counts_sorted = devices_count.sort_values(by='device_verification_count', ascending=False)
-print("Top 60 most verified devices:")
-print(devices_counts_sorted.head(187))
 
 risky_serials = set(riskiest_test_machines['Serijski broj'])
 verified_serials = set(devices_counts_sorted['Serijski broj'])
 
 overlap_serials = risky_serials.intersection(verified_serials)
 
-print(f"\n Devices that are BOTH risky and most verified: {len(overlap_serials)} out of 187")
+print(f"\n\n\t Devices that are BOTH risky and most verified: {len(overlap_serials)} devices")
 
 overlap_devices = riskiest_test_machines[riskiest_test_machines['Serijski broj'].isin(overlap_serials)]
-print("\n These devices are both highly risky and highly verified:")
-print(overlap_devices)
-
+print("\n\t These devices are both highly risky and highly verified:")
+print(overlap_devices.head(50))
