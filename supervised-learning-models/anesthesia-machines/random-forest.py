@@ -31,7 +31,7 @@ pd.set_option('display.max_rows', None)
 #------------------------------------------------------------------------
 
 # Load data from CSV file
-data = pd.read_csv("files/anesthesia_machines_2015_2023.csv", encoding="utf-8")
+data = pd.read_csv("files/anesthesia_machines_2015_2024.csv", encoding="utf-8")
 
 # Drop unnecessary columns that we won't need for prediction
 data.drop(columns=['Broj izvještaja', 'Broj naloga', 'Status verifikacije', 'Zahtjev za verifikaciju', 'Metoda', 'Vrsta','Napomena'], errors='ignore', inplace=True)
