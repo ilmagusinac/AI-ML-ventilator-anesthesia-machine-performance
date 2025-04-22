@@ -81,7 +81,7 @@ usk_columns = [col for col in data.columns if 'Usklađeno' in col]
 for col in usk_columns:
     data[col] = data[col].map({'DA': 1, 'NE': 0})
 
-data.to_csv("files/anesthesia_cleaned.csv", index=False, encoding="utf-8")
+# data.to_csv("files/anesthesia_cleaned.csv", index=False, encoding="utf-8")
 
 #------------------------------------------------------------------------
 # FEATURE ENGINEERING
@@ -169,7 +169,7 @@ data['year'] = data['Datum izdavanja'].dt.year
 data['month'] = data['Datum izdavanja'].dt.month
 data['dayofweek'] = data['Datum izdavanja'].dt.dayofweek
 
-#data.to_csv("files/anesthesia_cleaned_with_features.csv", index=False, encoding="utf-8")
+# data.to_csv("files/anesthesia_cleaned_with_features.csv", index=False, encoding="utf-8")
 
 #------------------------------------------------------------------------
 # MODEL TRAINING AND TUNING

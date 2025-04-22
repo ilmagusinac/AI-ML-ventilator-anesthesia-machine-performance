@@ -81,7 +81,7 @@ usk_columns = [col for col in data.columns if 'Usklađeno' in col]
 for col in usk_columns:
     data[col] = data[col].map({'DA': 1, 'NE': 0})
 
-data.to_csv("files/respiratory_cleaned.csv", index=False, encoding="utf-8")
+#data.to_csv("files/respiratory_cleaned.csv", index=False, encoding="utf-8")
 
 #------------------------------------------------------------------------
 # FEATURE ENGINEERING
