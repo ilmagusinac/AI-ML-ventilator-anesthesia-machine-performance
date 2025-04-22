@@ -297,19 +297,24 @@ print(global_failure_stats.head(100))
 # NEXT YEAR FAILURE PREDICTION - DEVICES VERIFIED MORE THAN 5 TIMES
 # ------------------------------------------------------------------------
 
-# Group by device and collect all years of verification
-device_years = data.groupby('Serijski broj')['year'].apply(lambda x: sorted(set(x))).reset_index(name='Years')
+# Group by device and count actual verifications (not just years)
+device_years = data.groupby('Serijski broj').agg({
+    'year': lambda x: sorted(set(x)),   # Optional, only needed for analysis
+    'Datum izdavanja': 'count'          # Count total verifications
+}).reset_index()
 
-# Count how many times the device has been verified
-device_years['Total_Verifications'] = device_years['Years'].apply(len)
+device_years.rename(columns={
+    'year': 'Years',
+    'Datum izdavanja': 'Total_Verifications'
+}, inplace=True)
 
-# Keep only devices verified more than 5 times
+# Keep only devices verified more than 3 times
 eligible_devices = device_years[device_years['Total_Verifications'] > 3].copy()
 
 # Filter data for only these devices
 eligible_data = data[data['Serijski broj'].isin(eligible_devices['Serijski broj'])].copy()
 
-# Get the last record for each eligible device (latest year)
+# Get the last record for each eligible device (latest by date)
 last_verifications = eligible_data.sort_values(by='Datum izdavanja').groupby('Serijski broj').tail(1).copy()
 
 # Predict next year failure probability
@@ -325,11 +330,11 @@ last_verifications = last_verifications.merge(
     how='left'
 )
 
-# Map back 'Uređaj' and 'Proizvođač' to original labels for better readability
+# Map back to original labels
 last_verifications['Uređaj'] = last_verifications['Uređaj'].map(original_values['Uređaj'])
 last_verifications['Proizvođač'] = last_verifications['Proizvođač'].map(original_values['Proizvođač'])
 
-# Sort values by 'Predicted_Failure_Probability'
+# Sort by predicted risk
 next_year_predictions = last_verifications.sort_values(by='Predicted_Failure_Probability', ascending=False)
 
 print("\n\n\tPredicted High-Risk Devices for Next Year:")
