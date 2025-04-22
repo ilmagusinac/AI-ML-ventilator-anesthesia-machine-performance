@@ -314,7 +314,15 @@ last_verifications = eligible_data.sort_values(by='Datum izdavanja').groupby('Se
 
 # Predict next year failure probability
 X_next_year = last_verifications[feature_columns]
+
+for col in feature_columns:
+    if col not in X_next_year.columns:
+        X_next_year[col] = 0  # In case new "_missing" columns are missing
+    if X_next_year[col].isna().any():
+        X_next_year[col] = X_next_year[col].fillna(-999)
+
 probas_next_year = calibrated_gnb.predict_proba(X_next_year)
+
 last_verifications['Predicted_Failure_Probability'] = probas_next_year[:, 0]
 last_verifications['Predicted_Pass_Probability'] = probas_next_year[:, 1]
 
