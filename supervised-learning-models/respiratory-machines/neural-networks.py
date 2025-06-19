@@ -32,8 +32,8 @@ pd.set_option('display.max_rows', None)
 #------------------------------------------------------------------------
 
 # Load data from CSV file
-#data = pd.read_csv("files/respiratory_machines_2015_2024.csv", encoding="utf-8")
-data = pd.read_csv("files/respiratory_machines_2015_2023.csv", encoding="utf-8")
+data = pd.read_csv("files/respiratory_machines_2015_2024.csv", encoding="utf-8")
+#data = pd.read_csv("files/respiratory_machines_2015_2023.csv", encoding="utf-8")
 
 # Drop unnecessary columns that we won't need for prediction
 data.drop(columns=['Broj izvještaja', 'Broj naloga', 'Status verifikacije', 'Zahtjev za verifikaciju', 'Metoda', 'Vrsta','Napomena'], errors='ignore', inplace=True)
@@ -171,6 +171,63 @@ data['year'] = data['Datum izdavanja'].dt.year
 data['month'] = data['Datum izdavanja'].dt.month
 data['dayofweek'] = data['Datum izdavanja'].dt.dayofweek
 
+data.sort_values(by=['Serijski broj', 'year'], inplace=True)
+
+data['years_passed_streak'] = 0
+data['has_historical_recovery'] = 0  # not 'historial'
+
+for serial in data['Serijski broj'].unique():
+    device_data = data[data['Serijski broj'] == serial]
+    years = device_data['year'].values
+    outcomes = device_data['Verifikacija ispravna'].values
+
+    streaks = []
+    recovery_flag = False
+    streak = 0
+
+    for i in range(len(years)):
+        if i > 0 and years[i] == years[i-1] + 1:
+            if outcomes[i-1] == 1 and outcomes[i] == 1:
+                streak +=1
+            elif outcomes[i] == 1:
+                if outcomes[i-1] == 0:
+                    recovery_flag = True
+                streak = 1
+            else:
+                streak = 0
+        else:
+            streak = 1 if outcomes[i] == 1 else 0
+        streaks.append(streak)
+
+    data.loc[data['Serijski broj'] == serial, 'years_passed_streak'] = streaks
+    data.loc[data['Serijski broj'] == serial, 'has_historical_recovery'] = int(recovery_flag)
+
+data['last_verification_was_fail'] = data.groupby('Serijski broj')['Verifikacija ispravna'].shift(1).fillna(1).apply(lambda x: 1 if x == 0 else 0)
+
+data['last_verification_was_fail'] = (
+    data.groupby('Serijski broj')['Verifikacija ispravna']
+    .shift(1)
+    .fillna(1)
+    .apply(lambda x: 1 if x == 0 else 0)
+)
+
+# Initialize new column
+data['recent_single_fail_and_recovered'] = 0
+
+# Process each serial number
+for serial in data['Serijski broj'].unique():
+    device_history = data[data['Serijski broj'] == serial].sort_values(by='year')
+    for idx in device_history.index:
+        current_year = data.loc[idx, 'year']
+        recent_data = device_history[(device_history['year'] >= current_year - 5) & (device_history['year'] < current_year)]
+
+        # Look for 1 failure only, others passed
+        fails = (recent_data['Verifikacija ispravna'] == 0).sum()
+        passes = (recent_data['Verifikacija ispravna'] == 1).sum()
+
+        if fails == 1 and passes >= 3:
+            data.at[idx, 'recent_single_fail_and_recovered'] = 1
+            
 #data.to_csv("files/anesthesia_cleaned_with_features.csv", index=False, encoding="utf-8")
 
 #------------------------------------------------------------------------
@@ -186,7 +243,10 @@ feature_columns = [
     'mean_error', 'max_error', 'std_error',
     'total_breaches', 'breach_ratio', 'skipped_measurements', 
     'year', 'month', 'dayofweek', 
-    'mean_error_score', 'min_error_score', 'high_risk_score_count'
+    'mean_error_score', 'min_error_score', 'high_risk_score_count',
+    'years_passed_streak', 'has_historical_recovery',
+    'last_verification_was_fail',
+    'recent_single_fail_and_recovered'
 ]
 
 for col in feature_columns:
